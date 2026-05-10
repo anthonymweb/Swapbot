@@ -1,0 +1,38 @@
+{
+  "lastUpdated": "2025-01-01T00:00:00Z",
+  "mode": "TESTNET",
+  "totalValue": 10000.00,
+  "totalPnlPct": 0.00,
+  "portfolioHistory": [
+    { "t": "2025-01-01T00:00:00Z", "v": 10000.00 }
+  ],
+  "conservative": {
+    "usdt": 8000.00,
+    "holding": null,
+    "entryPrice": null,
+    "currentPnl": null,
+    "wins": 0,
+    "losses": 0,
+    "profit": 0.00
+  },
+  "sniper": {
+    "usdt": 2000.00,
+    "holding": null,
+    "entryPrice": null,
+    "peakPrice": null,
+    "trailingStop": null,
+    "currentPnl": null,
+    "wins": 0,
+    "losses": 0,
+    "profit": 0.00
+  },
+  "topCandidates": [],
+  "recentTrades": [],
+  "safetyStatus": {
+    "drawdownGuard": "OK",
+    "consecutiveLosses": 0,
+    "blacklist": [],
+    "botStatus": "STOPPED",
+    "pauseUntil": null
+  }
+}

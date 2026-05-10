@@ -1,0 +1,72 @@
+name: SwapBot — Market Scanner
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Restore state from last run
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: swapbot-state-${{ github.run_id }}
+          restore-keys: swapbot-state-
+
+      - name: Run bot scan
+        run: node bot.js --single-scan
+        env:
+          TESTNET: ${{ secrets.TESTNET }}
+          API_KEY: ${{ secrets.API_KEY }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          SIGNALS_ENABLED: ${{ secrets.SIGNALS_ENABLED }}
+          GITHUB_USERNAME: ${{ secrets.GH_USERNAME }}
+          GITHUB_REPO: swapbot
+          CONSERVATIVE_RATIO: '0.80'
+          SNIPER_RATIO: '0.20'
+          CONSERVATIVE_TRADE_SIZE: '0.25'
+          SNIPER_TRADE_SIZE: '0.50'
+          TRAILING_STOP: '0.10'
+          CONSERVATIVE_STOP_LOSS: '0.05'
+          CONSERVATIVE_TAKE_PROFIT: '0.08'
+          SNIPER_PARTIAL_PROFIT: '1.00'
+          SNIPER_FULL_PROFIT: '3.00'
+          DRAWDOWN_LIMIT: '0.15'
+          SCAN_INTERVAL_CONSERVATIVE: '60'
+          SCAN_INTERVAL_SNIPER: '30'
+          MIN_SNIPER_SCORE: '70'
+          MIN_VOLUME_MULTIPLIER: '3'
+
+      - name: Save state for next run
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: swapbot-state-${{ github.run_id }}
+
+      - name: Commit public data for Mini App
+        run: |
+          git config user.email "swapbot@github.com"
+          git config user.name "SwapBot"
+          git add public/data.json
+          git diff --staged --quiet || git commit -m "data: update snapshot [skip ci]"
+          git push
