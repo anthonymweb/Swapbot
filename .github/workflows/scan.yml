@@ -1,0 +1,29 @@
+name: Scan (single)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run single scan
+        env:
+          # Ensure scanning is offline-safe by default.
+          # BINANCE_REAL: "0"
+          MIN_BALANCE_USDT: "3"
+        run: node src/bot/runner.js --single-scan

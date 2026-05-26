@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SwapBot — AI Trading Terminal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#06060e;--fg:#e8e8f0;--muted:#7a7a9a;
+--cyan:#00e5ff;--purple:#b44aff;--amber:#ffb347;--pink:#ff3b7f;
+--good:#00ff88;--bad:#ff3355;--warn:#ffcc00;
+--glass:rgba(255,255,255,0.03);--glass-border:rgba(255,255,255,0.06);
+--glow-cyan:0 0 30px rgba(0,229,255,0.15);
+--glow-purple:0 0 30px rgba(180,74,255,0.15);
+}
+body{
+margin:0;background:var(--bg);color:var(--fg);
+font-family:'Inter','SF Pro','Segoe UI',system-ui,-apple-system,sans-serif;
+overflow-x:hidden;min-height:100vh;
+}
+::selection{background:rgba(0,229,255,0.3)}
+#particles-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.orb{
+position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0;
+animation:orbFloat 20s ease-in-out infinite;
+}
+.orb-1{width:500px;height:500px;background:rgba(0,229,255,0.08);top:-10%;left:-10%;animation-delay:0s}
+.orb-2{width:400px;height:400px;background:rgba(180,74,255,0.06);bottom:-10%;right:-10%;animation-delay:-7s}
+.orb-3{width:300px;height:300px;background:rgba(255,179,71,0.05);top:40%;left:60%;animation-delay:-14s}
+@keyframes orbFloat{
+0%,100%{transform:translate(0,0) scale(1)}
+25%{transform:translate(60px,-80px) scale(1.1)}
+50%{transform:translate(-40px,60px) scale(0.95)}
+75%{transform:translate(80px,40px) scale(1.05)}
+}
+
+/* Header */
+header{
+position:sticky;top:0;z-index:100;
+background:rgba(6,6,14,0.85);backdrop-filter:blur(20px);
+border-bottom:1px solid var(--glass-border);
+padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;
+}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+.logo-wrap{
+width:36px;height:36px;border-radius:10px;
+background:linear-gradient(135deg,var(--cyan),var(--purple));
+display:flex;align-items:center;justify-content:center;
+box-shadow:0 0 20px rgba(0,229,255,0.2);
+animation:logoPulse 3s ease-in-out infinite;
+position:relative;
+}
+.logo-wrap::after{
+content:'';position:absolute;inset:-3px;border-radius:13px;
+background:linear-gradient(135deg,var(--cyan),var(--purple),var(--amber));
+z-index:-1;opacity:0.4;filter:blur(6px);
+}
+@keyframes logoPulse{
+0%,100%{box-shadow:0 0 20px rgba(0,229,255,0.2)}
+50%{box-shadow:0 0 40px rgba(180,74,255,0.3)}
+}
+.logo-icon{color:#fff;font-size:18px;font-weight:800;letter-spacing:-1px}
+.brand-text{
+font-size:18px;font-weight:700;
+background:linear-gradient(135deg,var(--fg) 30%,var(--cyan));
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.pill{
+padding:6px 14px 6px 10px;border-radius:999px;
+border:1px solid var(--glass-border);background:var(--glass);
+font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:8px;
+}
+.dot{width:8px;height:8px;border-radius:50%;background:#444;position:relative}
+.dot::after{content:'';position:absolute;inset:-3px;border-radius:50%;opacity:0;transition:all .3s}
+.dot.ok{background:var(--good);box-shadow:0 0 12px rgba(0,255,136,0.4);animation:breathing 2s ease-in-out infinite}
+.dot.ok::after{background:var(--good);opacity:0.3;animation:breathing 2s ease-in-out infinite}
+.dot.warn{background:var(--warn);box-shadow:0 0 12px rgba(255,204,0,0.3)}
+.dot.bad{background:var(--bad);box-shadow:0 0 12px rgba(255,51,85,0.3)}
+@keyframes breathing{
+0%,100%{transform:scale(1);opacity:1}
+50%{transform:scale(1.3);opacity:0.7}
+}
+
+/* Main layout */
+main{position:relative;z-index:1;padding:16px;max-width:1100px;margin:0 auto}
+
+/* Hero */
+.hero{
+background:linear-gradient(135deg,var(--glass),rgba(0,229,255,0.02));
+border:1px solid var(--glass-border);border-radius:16px;
+padding:20px 24px;margin-bottom:14px;position:relative;overflow:hidden;
+backdrop-filter:blur(10px);
+}
+.hero::before{
+content:'';position:absolute;top:0;left:0;right:0;height:1px;
+background:linear-gradient(90deg,transparent,var(--cyan),var(--purple),transparent);
+}
+.hero-inner{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.hero-left{display:flex;flex-direction:column;gap:4px}
+.hero-label{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)}
+.usd{
+font-size:40px;font-weight:800;letter-spacing:-1px;
+background:linear-gradient(135deg,var(--fg) 30%,var(--cyan));
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;
+line-height:1.1;
+}
+.usd-suffix{font-size:16px;font-weight:400;color:var(--muted);-webkit-text-fill-color:var(--muted)}
+.hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.tag{
+font-size:13px;padding:4px 12px;border-radius:8px;border:1px solid var(--glass-border);
+display:inline-flex;align-items:center;gap:6px;font-weight:600;
+}
+.tag.good{color:var(--good);border-color:rgba(0,255,136,0.2);background:rgba(0,255,136,0.06)}
+.tag.bad{color:var(--bad);border-color:rgba(255,51,85,0.2);background:rgba(255,51,85,0.06)}
+.updated-at{font-size:11px;color:var(--muted);letter-spacing:0.3px}
+
+/* Sparkline */
+.sparkline-wrap{margin-top:14px;height:60px;position:relative}
+.sparkline-wrap canvas{width:100%;height:100%;display:block;border-radius:8px}
+
+/* Grid */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+
+/* Card */
+.card{
+background:var(--glass);border:1px solid var(--glass-border);border-radius:14px;
+padding:18px 20px;position:relative;overflow:hidden;
+backdrop-filter:blur(8px);transition:all 0.3s ease;
+}
+.card:hover{border-color:rgba(255,255,255,0.12);transform:translateY(-1px)}
+.card::before{
+content:'';position:absolute;top:0;left:0;right:0;height:1px;
+background:linear-gradient(90deg,transparent,var(--accent),transparent);
+opacity:0.5;
+}
+.card-cyan{--accent:var(--cyan);box-shadow:0 0 30px rgba(0,229,255,0.04)}
+.card-cyan:hover{box-shadow:0 0 40px rgba(0,229,255,0.08)}
+.card-purple{--accent:var(--purple);box-shadow:0 0 30px rgba(180,74,255,0.04)}
+.card-purple:hover{box-shadow:0 0 40px rgba(180,74,255,0.08)}
+.card h3{
+margin:0 0 12px 0;font-size:12px;text-transform:uppercase;letter-spacing:1.2px;
+color:var(--accent,var(--muted));font-weight:700;
+}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 14px;font-size:13px;color:var(--muted)}
+.kv b{color:var(--fg);font-weight:700}
+.kv-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+.kv-row+.kv-row{border-top:1px solid rgba(255,255,255,0.04)}
+.kv-label{color:var(--muted);font-size:12px}
+.kv-value{color:var(--fg);font-weight:600;font-size:13px}
+.kv-value.good{color:var(--good)}
+.kv-value.bad{color:var(--bad)}
+
+/* Signals table */
+.section-card{
+background:var(--glass);border:1px solid var(--glass-border);border-radius:14px;
+padding:18px 20px;margin-bottom:14px;backdrop-filter:blur(8px);
+}
+.section-card h3{
+margin:0 0 14px 0;font-size:12px;text-transform:uppercase;letter-spacing:1.2px;
+color:var(--muted);font-weight:700;
+}
+.section-card .header-row{
+display:grid;
+grid-template-columns:1fr 100px 80px 80px;
+gap:0;padding:8px 4px 8px 12px;
+color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;
+border-bottom:1px solid var(--glass-border);
+}
+.signal-row{
+display:grid;
+grid-template-columns:1fr 100px 80px 80px;
+gap:0;padding:10px 4px 10px 12px;
+align-items:center;border-bottom:1px solid rgba(255,255,255,0.03);
+transition:all 0.2s;cursor:pointer;border-radius:4px;
+}
+.signal-row:hover{background:rgba(255,255,255,0.03)}
+.signal-row:last-child{border-bottom:none}
+.symbol-cell{display:flex;align-items:center;gap:8px}
+.symbol-icon{
+width:22px;height:22px;border-radius:6px;
+display:flex;align-items:center;justify-content:center;
+font-size:10px;font-weight:700;color:#fff;
+}
+.score-cell{display:flex;flex-direction:column;gap:3px}
+.score-num{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+.score-bar-wrap{height:4px;border-radius:4px;background:rgba(255,255,255,0.06);overflow:hidden;width:100%}
+.score-bar{height:100%;border-radius:4px;transition:width 0.8s cubic-bezier(0.22,1,0.36,1);width:0%}
+.vol-cell{font-size:13px;color:var(--fg);font-weight:500}
+.gain-cell{font-size:13px;font-weight:600}
+
+/* Trades */
+.trades-list{display:flex;flex-direction:column;gap:6px}
+.trade-row{
+display:flex;align-items:center;justify-content:space-between;
+padding:8px 10px;border-radius:8px;
+background:rgba(255,255,255,0.02);font-size:12px;gap:8px;
+}
+.trade-side{
+padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;
+}
+.trade-side.buy{background:rgba(0,255,136,0.12);color:var(--good)}
+.trade-side.sell{background:rgba(255,51,85,0.12);color:var(--bad)}
+.trade-symbol{font-weight:600;font-size:13px}
+.trade-detail{color:var(--muted);font-size:11px}
+.trade-pnl.good{color:var(--good)}
+.trade-pnl.bad{color:var(--bad)}
+
+/* Live ticker */
+.ticker-bar{
+overflow:hidden;position:relative;height:28px;
+margin-bottom:14px;border-radius:8px;
+background:var(--glass);border:1px solid var(--glass-border);
+}
+.ticker-track{
+display:flex;gap:32px;position:absolute;white-space:nowrap;
+animation:tickerScroll 25s linear infinite;
+font-size:12px;line-height:28px;color:var(--muted);
+padding:0 16px;
+}
+.ticker-track span{margin-right:32px}
+.ticker-track .up{color:var(--good)}
+.ticker-track .down{color:var(--bad)}
+@keyframes tickerScroll{
+0%{transform:translateX(0)}
+100%{transform:translateX(-50%)}
+}
+
+/* Empty state */
+.empty-state{text-align:center;padding:20px;color:var(--muted);font-size:13px}
+
+/* Animations */
+@keyframes fadeUp{
+from{opacity:0;transform:translateY(12px)}
+to{opacity:1;transform:translateY(0)}
+}
+.fade-in{animation:fadeUp 0.6s ease both}
+.fade-in-d1{animation-delay:0.1s}
+.fade-in-d2{animation-delay:0.2s}
+.fade-in-d3{animation-delay:0.3s}
+.fade-in-d4{animation-delay:0.4s}
+
+/* Footer */
+.footer{margin:30px 0 20px;text-align:center;font-size:11px;color:var(--muted);letter-spacing:0.3px}
+.footer span{opacity:0.5}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+
+/* Glow pulse for values */
+.glow-pulse{animation:glowPulse 2s ease-in-out infinite}
+@keyframes glowPulse{
+0%,100%{text-shadow:0 0 8px rgba(0,229,255,0)}
+50%{text-shadow:0 0 20px rgba(0,229,255,0.15)}
+}
+</style>
+</head>
+<body>
+
+<canvas id="particles-canvas"></canvas>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<header>
+  <a class="brand" href="/public/">
+    <div class="logo-wrap">
+      <span class="logo-icon">S</span>
+    </div>
+    <span class="brand-text">SwapBot</span>
+  </a>
+  <div class="pill" id="statusPill">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">initializing</span>
+  </div>
+</header>
+
+<main>
+  <div class="ticker-bar">
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+
+  <section class="hero fade-in">
+    <div class="hero-inner">
+      <div class="hero-left">
+        <div class="hero-label">Portfolio Value</div>
+        <div class="usd" id="portfolioUSD">$<span id="portfolioNum">0.00</span><span class="usd-suffix"> USDT</span></div>
+      </div>
+      <div class="hero-right">
+        <div class="tag" id="pnlTag">▲ +0.00%</div>
+        <div class="updated-at" id="updatedAt">—</div>
+      </div>
+    </div>
+    <div class="sparkline-wrap">
+      <canvas id="sparkline"></canvas>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card card-cyan fade-in fade-in-d1">
+      <h3>⚡ Conservative Engine</h3>
+      <div class="kv">
+        <div class="kv-row"><span class="kv-label">USDT Bucket</span><span class="kv-value" id="consUSDT">0.00</span></div>
+        <div class="kv-row"><span class="kv-label">Holding</span><span class="kv-value" id="consHolding">—</span></div>
+        <div class="kv-row"><span class="kv-label">Win / Loss</span><span class="kv-value" id="consWL">0 / 0</span></div>
+        <div class="kv-row"><span class="kv-label">Profit</span><span class="kv-value good" id="consProfit">+$0.00</span></div>
+      </div>
+    </div>
+    <div class="card card-purple fade-in fade-in-d2">
+      <h3>🔥 Sniper Engine</h3>
+      <div class="kv">
+        <div class="kv-row"><span class="kv-label">USDT Bucket</span><span class="kv-value" id="snipUSDT">0.00</span></div>
+        <div class="kv-row"><span class="kv-label">Holding</span><span class="kv-value" id="snipHolding">—</span></div>
+        <div class="kv-row"><span class="kv-label">Win / Loss</span><span class="kv-value" id="snipWL">0 / 0</span></div>
+        <div class="kv-row"><span class="kv-label">Trailing Stop</span><span class="kv-value" id="snipTrail">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card fade-in fade-in-d3">
+    <h3>📡 Live Signals</h3>
+    <div class="header-row">
+      <div>Token</div>
+      <div>Score</div>
+      <div>Vol x</div>
+      <div>24h</div>
+    </div>
+    <div id="signalsRows"></div>
+  </section>
+
+  <section class="section-card fade-in fade-in-d4">
+    <h3>🔄 Recent Activity</h3>
+    <div class="trades-list" id="tradesList">
+      <div class="empty-state">No recent trades</div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>SwapBot AI Terminal · live data via SSE</span>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id)
+
+// ── Particle System ──
+const canvas = $('#particles-canvas')
+const ctx = canvas.getContext('2d')
+let particles = [], animId, mouse = {x: -999, y: -999}
+
+function resizeCanvas(){
+  canvas.width = window.innerWidth
+  canvas.height = window.innerHeight
+}
+window.addEventListener('resize', resizeCanvas)
+resizeCanvas()
+document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY })
+
+const PARTICLE_COUNT = 80
+const CONNECT_DIST = 120
+
+function createParticles(){
+  particles = []
+  for(let i = 0; i < PARTICLE_COUNT; i++){
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      r: Math.random() * 2 + 0.5,
+      alpha: Math.random() * 0.4 + 0.1,
+    })
+  }
+}
+createParticles()
+
+function drawParticles(){
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  for(let p of particles){
+    p.x += p.vx; p.y += p.vy
+    if(p.x < 0 || p.x > canvas.width) p.vx *= -1
+    if(p.y < 0 || p.y > canvas.height) p.vy *= -1
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(0,229,255,${p.alpha})`
+    ctx.fill()
+  }
+  for(let i = 0; i < particles.length; i++){
+    for(let j = i + 1; j < particles.length; j++){
+      const dx = particles[i].x - particles[j].x
+      const dy = particles[i].y - particles[j].y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if(dist < CONNECT_DIST){
+        const alpha = (1 - dist / CONNECT_DIST) * 0.15
+        ctx.beginPath()
+        ctx.moveTo(particles[i].x, particles[i].y)
+        ctx.lineTo(particles[j].x, particles[j].y)
+        ctx.strokeStyle = `rgba(0,229,255,${alpha})`
+        ctx.lineWidth = 0.5
+        ctx.stroke()
+      }
+    }
+  }
+  // connect to mouse
+  for(let p of particles){
+    const dx = p.x - mouse.x
+    const dy = p.y - mouse.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if(dist < CONNECT_DIST * 1.5){
+      const alpha = (1 - dist / (CONNECT_DIST * 1.5)) * 0.25
+      ctx.beginPath()
+      ctx.moveTo(p.x, p.y)
+      ctx.lineTo(mouse.x, mouse.y)
+      ctx.strokeStyle = `rgba(180,74,255,${alpha})`
+      ctx.lineWidth = 1
+      ctx.stroke()
+    }
+  }
+  animId = requestAnimationFrame(drawParticles)
+}
+drawParticles()
+
+// ── Sparkline ──
+const sparkCanvas = $('#sparkline')
+const sparkCtx = sparkCanvas.getContext('2d')
+
+function drawSparkline(data){
+  const dpr = window.devicePixelRatio || 1
+  const rect = sparkCanvas.parentElement.getBoundingClientRect()
+  sparkCanvas.width = rect.width * dpr
+  sparkCanvas.height = rect.height * dpr
+  sparkCanvas.style.width = rect.width + 'px'
+  sparkCanvas.style.height = rect.height + 'px'
+  sparkCtx.scale(dpr, dpr)
+  const w = rect.width, h = rect.height
+
+  sparkCtx.clearRect(0, 0, w, h)
+  if(!data || data.length < 2) return
+
+  const vals = data.map(d => Number(d.v))
+  const min = Math.min(...vals), max = Math.max(...vals)
+  const range = max - min || 1
+  const pad = 4
+
+  const xs = vals.map((_, i) => pad + (i / (vals.length - 1)) * (w - pad * 2))
+  const ys = vals.map(v => pad + (1 - (v - min) / range) * (h - pad * 2))
+
+  // gradient fill
+  const grad = sparkCtx.createLinearGradient(0, 0, 0, h)
+  grad.addColorStop(0, 'rgba(0,229,255,0.25)')
+  grad.addColorStop(0.5, 'rgba(180,74,255,0.1)')
+  grad.addColorStop(1, 'rgba(0,229,255,0.01)')
+
+  // fill area
+  sparkCtx.beginPath()
+  sparkCtx.moveTo(xs[0], h)
+  for(let i = 0; i < xs.length; i++) sparkCtx.lineTo(xs[i], ys[i])
+  sparkCtx.lineTo(xs[xs.length - 1], h)
+  sparkCtx.closePath()
+  sparkCtx.fillStyle = grad
+  sparkCtx.fill()
+
+  // line
+  sparkCtx.beginPath()
+  for(let i = 0; i < xs.length; i++){
+    i === 0 ? sparkCtx.moveTo(xs[i], ys[i]) : sparkCtx.lineTo(xs[i], ys[i])
+  }
+  sparkCtx.strokeStyle = 'rgba(0,229,255,0.7)'
+  sparkCtx.lineWidth = 1.5
+  sparkCtx.stroke()
+
+  // glow line
+  sparkCtx.beginPath()
+  for(let i = 0; i < xs.length; i++){
+    i === 0 ? sparkCtx.moveTo(xs[i], ys[i]) : sparkCtx.lineTo(xs[i], ys[i])
+  }
+  sparkCtx.strokeStyle = 'rgba(0,229,255,0.15)'
+  sparkCtx.lineWidth = 6
+  sparkCtx.stroke()
+}
+
+// ── Number animation ──
+function animateValue(el, target, suffix = '', decimals = 2){
+  const current = parseFloat(el.textContent.replace(/[$,]/g,'')) || 0
+  const duration = 800
+  const start = performance.now()
+  function tick(now){
+    const t = Math.min((now - start) / duration, 1)
+    const ease = 1 - Math.pow(1 - t, 3)
+    const val = current + (target - current) * ease
+    el.textContent = val.toFixed(decimals) + suffix
+    if(t < 1) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+// ── Ticker ──
+const tickerSymbols = ['BTC', 'ETH', 'SOL', 'PEPE', 'WIF', 'DOGE', 'BONK', 'SHIB', 'ADA', 'AVAX', 'DOT', 'LINK', 'MATIC', 'ATOM', 'NEAR', 'APT', 'SUI', 'OP', 'ARB', 'TIA', 'PEPE', 'WIF', 'BONK', 'DOGE', 'SHIB']
+
+function generateTicker(){
+  return tickerSymbols.map(s => {
+    const dir = Math.random() > 0.5 ? 'up' : 'down'
+    const pct = (Math.random() * 8 + 0.1).toFixed(2)
+    return `<span class="${dir}">${s} ${dir === 'up' ? '▲' : '▼'} ${pct}%</span>`
+  }).join('')
+}
+const track = $('#tickerTrack')
+track.innerHTML = generateTicker() + generateTicker()
+
+// ── Helpers ──
+function fmtUSD(n){ return Number(n || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) }
+function fmtPct(n){ const x = Number(n || 0); return (x >= 0 ? '▲ +' : '▼ ') + x.toFixed(2) + '%' }
+
+function engineIcon(name){
+  const icons = { conservative: '⚡', sniper: '🔥' }
+  return icons[name.toLowerCase()] || '●'
+}
+
+function getScoreColor(s){
+  if(s >= 70) return 'var(--good)'
+  if(s >= 50) return 'var(--warn)'
+  return 'var(--bad)'
+}
+function getScoreBg(s){
+  if(s >= 70) return 'rgba(0,255,136,0.15)'
+  if(s >= 50) return 'rgba(255,204,0,0.15)'
+  return 'rgba(255,51,85,0.15)'
+}
+
+function setStatus(ok, ageMs){
+  const dot = $('statusDot'), text = $('statusText')
+  if(!ok){ dot.className = 'dot bad'; text.textContent = 'offline'; return }
+  if(ageMs <= 60000){ dot.className = 'dot ok'; text.textContent = 'live' }
+  else if(ageMs <= 180000){ dot.className = 'dot warn'; text.textContent = 'delayed' }
+  else { dot.className = 'dot bad'; text.textContent = 'stale' }
+}
+
+function timeAgo(ts){
+  const diff = Date.now() - ts
+  if(diff < 60000) return 'just now'
+  if(diff < 3600000) return Math.floor(diff/60000) + 'm ago'
+  if(diff < 86400000) return Math.floor(diff/3600000) + 'h ago'
+  return Math.floor(diff/86400000) + 'd ago'
+}
+
+// ── Render signals ──
+function renderSignals(candidates){
+  const rows = $('signalsRows'); rows.innerHTML = ''
+  if(!candidates || !candidates.length){
+    rows.innerHTML = '<div class="empty-state">No signals available</div>'
+    return
+  }
+  candidates.forEach((c, i) => {
+    const s = Number(c.score || 0)
+    const color = getScoreColor(s)
+    const bg = getScoreBg(s)
+    const iconColors = ['#00e5ff','#b44aff','#ffb347','#ff3b7f','#00ff88']
+    const r = document.createElement('div')
+    r.className = 'signal-row'
+    r.style.animationDelay = (i * 0.05) + 's'
+    r.innerHTML = `
+      <div class="symbol-cell">
+        <div class="symbol-icon" style="background:${iconColors[i%iconColors.length]}">${c.symbol.slice(0,2)}</div>
+        <span style="font-weight:600">${c.symbol.replace('USDT','')}</span>
+      </div>
+      <div class="score-cell">
+        <div class="score-num">
+          <span style="color:${color}">${Math.round(s)}</span>
+          <span style="font-size:10px;color:var(--muted);font-weight:400">/100</span>
+        </div>
+        <div class="score-bar-wrap"><div class="score-bar" style="width:${Math.min(100,s)}%;background:linear-gradient(90deg,${color},${color}88)"></div></div>
+      </div>
+      <div class="vol-cell">${(Number(c.volumeX || 0)).toFixed(1)}x</div>
+      <div class="gain-cell" style="color:${(c.gain24hPct||0) >= 0 ? 'var(--good)' : 'var(--bad)'}">${fmtPct(c.gain24hPct)}</div>
+    `
+    rows.appendChild(r)
+  })
+}
+
+// ── Render trades ──
+function renderTrades(trades){
+  const list = $('tradesList'); list.innerHTML = ''
+  if(!trades || !trades.length){
+    list.innerHTML = '<div class="empty-state">No recent trades</div>'
+    return
+  }
+  trades.slice(0, 8).forEach(t => {
+    const r = document.createElement('div')
+    r.className = 'trade-row'
+    const pnl = t.pnl
+    const pnlStr = pnl !== null && pnl !== undefined
+      ? `<span class="trade-pnl ${pnl >= 0 ? 'good' : 'bad'}">${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}</span>`
+      : '<span style="color:var(--muted)">open</span>'
+    r.innerHTML = `
+      <div class="trade-side ${t.type}">${t.type}</div>
+      <div class="trade-symbol">${t.symbol?.replace('USDT','') || '?'}</div>
+      <div class="trade-detail">${t.engine ? engineIcon(t.engine) + ' ' : ''}${timeAgo(t.timestamp || Date.now())}</div>
+      <div>${pnlStr}</div>
+    `
+    list.appendChild(r)
+  })
+}
+
+// ── Main data refresh ──
+let previousState = null
+
+function updateUI(data){
+  const state = data.state || {}
+  const total = Number(state.totalUSDT || 0)
+
+  // portfolio number animation
+  const portNum = $('portfolioNum')
+  const prevTotal = Number(previousState?.totalUSDT || total)
+  animateValue(portNum, total)
+
+  const pnlTag = $('pnlTag')
+  const hist = Array.isArray(state.portfolioHistory) ? state.portfolioHistory : []
+  let pnlPct = 0
+  if(hist.length >= 2){
+    const first = hist[0].v, last = hist[hist.length - 1].v
+    pnlPct = ((Number(last) - Number(first)) / Math.max(1e-9, Number(first))) * 100
+  }
+  pnlTag.textContent = fmtPct(pnlPct)
+  pnlTag.className = 'tag ' + (pnlPct >= 0 ? 'good' : 'bad')
+
+  $('updatedAt').textContent = 'Updated: ' + (data.updatedAt ? new Date(data.updatedAt).toLocaleTimeString() : '—')
+
+  // Animated values
+  const c = state.conservative || {}
+  const s = state.sniper || {}
+  $('consUSDT').textContent = fmtUSD(c.usdt || 0)
+  $('consHolding').textContent = c.holding?.symbol?.replace('USDT','') || '—'
+  $('consWL').textContent = `${c.wins || 0} / ${c.losses || 0}`
+  $('consProfit').textContent = (c.profit >= 0 ? '+' : '') + '$' + fmtUSD(Math.abs(c.profit || 0))
+  $('consProfit').className = 'kv-value ' + ((c.profit || 0) >= 0 ? 'good' : 'bad')
+
+  $('snipUSDT').textContent = fmtUSD(s.usdt || 0)
+  $('snipHolding').textContent = s.holding?.symbol?.replace('USDT','') || '—'
+  $('snipWL').textContent = `${s.wins || 0} / ${s.losses || 0}`
+  $('snipTrail').textContent = s.holding?.trailingStopPrice ? '$' + Number(s.holding.trailingStopPrice).toFixed(s.holding.trailingStopPrice < 0.1 ? 8 : 2) : '—'
+
+  renderSignals(state.topCandidates)
+  renderTrades(state.recentTrades)
+
+  // Sparkline
+  drawSparkline(hist)
+
+  // Status
+  const ageMs = Date.now() - new Date(data.updatedAt || Date.now()).getTime()
+  setStatus(true, ageMs)
+
+  previousState = state
+}
+
+async function refresh(){
+  try{
+    const res = await fetch('/api/snapshot')
+    if(!res.ok) throw new Error('snapshot_failed')
+    const data = await res.json()
+    updateUI(data)
+  }catch(e){ setStatus(false, 999999) }
+}
+
+// ── SSE ──
+let evtSource = null
+function connectSSE(){
+  if(evtSource) evtSource.close()
+  evtSource = new EventSource('/api/events')
+  evtSource.onmessage = (e) => {
+    try{
+      const data = JSON.parse(e.data)
+      if(data.state) updateUI(data)
+    }catch(_){}
+  }
+  evtSource.onerror = () => {
+    evtSource.close()
+    setTimeout(connectSSE, 3000)
+  }
+}
+
+// ── Auto-flicker (magic) ──
+let flickerInterval = null
+function startFlicker(){
+  flickerInterval = setInterval(() => {
+    fetch('/api/magic/flicker', {method:'POST'}).catch(()=>{})
+  }, 8000)
+}
+
+// ── Init ──
+refresh()
+connectSSE()
+startFlicker()
+
+// Redraw sparkline on resize
+window.addEventListener('resize', () => {
+  if(previousState) drawSparkline(previousState.portfolioHistory || [])
+})
+
+// pull to refresh
+let touchStartY = 0
+document.addEventListener('touchstart', e => { touchStartY = e.touches[0].clientY }, {passive:true})
+document.addEventListener('touchend', e => {
+  const dy = (e.changedTouches[0].clientY - touchStartY)
+  if(window.scrollY <= 0 && dy > 80) refresh()
+}, {passive:true})
+</script>
+</body>
+</html>
