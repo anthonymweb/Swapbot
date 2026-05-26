@@ -17,6 +17,7 @@ const PORT = Number(process.env.PORT || 3000);
 
 let sseClients = [];
 
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 async function broadcastState() {
@@ -99,6 +100,10 @@ app.post('/api/magic/flicker', async (req, res) => {
 
 const server = app.listen(PORT, () => {
   console.log(`[swapbot] API listening on port ${PORT}`);
+
+  const { runLoop } = require('./src/bot/runner');
+  runLoop().catch(() => {});
+  console.log('[swapbot] Background scan loop started (30s interval)');
 });
 
 server.on('error', (err) => {
