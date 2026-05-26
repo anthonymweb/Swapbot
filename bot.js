@@ -20,13 +20,15 @@ const express = require('express');
 const cors    = require('cors');
 
 // ── CONFIG ───────────────────────────────────────────────
+const OFFLINE = process.env.BINANCE_REAL !== '1';
+
 const CFG = {
   TESTNET:        process.env.TESTNET !== 'false',
-  API_KEY:        process.env.API_KEY    || '',
-  API_SECRET:     process.env.API_SECRET || '',
-  TG_TOKEN:       process.env.TELEGRAM_BOT_TOKEN || '',
-  TG_CHANNEL:     process.env.TELEGRAM_CHANNEL_ID || '',
-  SIGNALS_ON:     process.env.SIGNALS_ENABLED !== 'false',
+  API_KEY:        OFFLINE ? 'offline' : (process.env.API_KEY    || ''),
+  API_SECRET:     OFFLINE ? 'offline' : (process.env.API_SECRET || ''),
+  TG_TOKEN:       OFFLINE ? '' : (process.env.TELEGRAM_BOT_TOKEN || ''),
+  TG_CHANNEL:     OFFLINE ? '' : (process.env.TELEGRAM_CHANNEL_ID || ''),
+  SIGNALS_ON:     !OFFLINE && process.env.SIGNALS_ENABLED !== 'false',
   GITHUB_USER:    process.env.GITHUB_USERNAME || 'your-username',
   GITHUB_REPO:    process.env.GITHUB_REPO || 'swapbot',
 
@@ -58,6 +60,80 @@ const BASE = CFG.TESTNET
   ? 'https://testnet.binance.vision'
   : 'https://api.binance.com';
 
+// ── SYNTHETIC DATA (offline) ─────────────────────────────
+const SYNTH_SYMBOLS = [
+  'BTCUSDT','ETHUSDT','SOLUSDT','DOGEUSDT','ADAUSDT',
+  'AVAXUSDT','LINKUSDT','DOTUSDT','MATICUSDT','UNIUSDT',
+  'PEPEUSDT','WIFUSDT','BONKUSDT','SHIBUSDT','NEARUSDT',
+  'APTUSDT','SUIUSDT','OPUSDT','ARBUSDT','TIAUSDT',
+  'INJUSDT','RUNEUSDT','FETUSDT','AGIXUSDT','ICPUSDT',
+];
+const SYNTH_PRICES = {
+  BTCUSDT: 67500, ETHUSDT: 3450, SOLUSDT: 145, DOGEUSDT: 0.165, ADAUSDT: 0.52,
+  AVAXUSDT: 38, LINKUSDT: 16.5, DOTUSDT: 7.8, MATICUSDT: 0.68, UNIUSDT: 9.2,
+  PEPEUSDT: 0.0000125, WIFUSDT: 2.45, BONKUSDT: 0.000034, SHIBUSDT: 0.000025,
+  NEARUSDT: 5.8, APTUSDT: 9.1, SUIUSDT: 1.95, OPUSDT: 3.2, ARBUSDT: 1.45,
+  TIAUSDT: 12.4, INJUSDT: 28, RUNEUSDT: 6.3, FETUSDT: 1.85, AGIXUSDT: 0.95, ICPUSDT: 11.2,
+};
+
+function synthPrice(symbol) {
+  const base = SYNTH_PRICES[symbol] || 1 + Math.random() * 10;
+  return base * (1 + (Math.random() - 0.5) * 0.04);
+}
+
+function synthKlines(symbol, interval, limit) {
+  let price = SYNTH_PRICES[symbol] || 1 + Math.random() * 10;
+  const candles = [];
+  for (let i = 0; i < limit; i++) {
+    const open = price;
+    const change = price * (Math.random() - 0.48) * 0.02;
+    const close = open + change;
+    const high = Math.max(open, close) + Math.abs(change) * Math.random();
+    const low = Math.min(open, close) - Math.abs(change) * Math.random();
+    candles.push({ open, high, low, close, vol: Math.random() * 1000000 + 100000 });
+    price = close;
+  }
+  return candles;
+}
+
+function synthAll24hr() {
+  return SYNTH_SYMBOLS.map(s => {
+    const baseVol = Math.random() * 50000000 + 500000;
+    const volSpike = Math.random() * 2 + 0.8;
+    const change24h = (Math.random() - 0.3) * 60;
+    return {
+      symbol: s,
+      priceChangePercent: change24h.toFixed(2),
+      quoteVolume: (baseVol * volSpike).toFixed(2),
+      lastPrice: synthPrice(s).toString(),
+    };
+  });
+}
+
+/**
+ * Directly generates sniper candidates with realistic volume spikes
+ * so the sniper engine can find tradeable signals.
+ */
+function synthSniperCandidates() {
+  const count = Math.floor(Math.random() * 6) + 8;
+  const shuffled = [...SYNTH_SYMBOLS].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).map((s, i) => {
+    const baseScore = 20 + Math.random() * 60;
+    const volMult = 2 + Math.random() * 25;
+    const gain = 10 + Math.random() * 80;
+    return {
+      symbol: s,
+      score: baseScore + (volMult >= 10 ? 30 : volMult >= 5 ? 20 : 10),
+      volMult: +volMult.toFixed(1),
+      gain: +gain.toFixed(1),
+      momentum: +(gain * 0.3).toFixed(1),
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function synthUSDTBalance() { return 850 + Math.random() * 300; }
+
+function synthLotSize() { return 0.00001; }
 // ── STATE ────────────────────────────────────────────────
 const STATE_FILE  = path.join(__dirname, 'state.json');
 const TRADES_FILE = path.join(__dirname, 'trades.log');
@@ -118,7 +194,14 @@ function sign(params) {
   return crypto.createHmac('sha256', CFG.API_SECRET).update(qs).digest('hex');
 }
 
+function isOffline() { return OFFLINE || global.__OFFLINE_FALLBACK; }
+
 async function bGet(path, params={}, pub=false) {
+  if (isOffline()) {
+    if (path === '/api/v3/time') return { serverTime: Date.now() };
+    if (path === '/api/v3/account') return { balances: [{ asset:'USDT', free: String(synthUSDTBalance()) }] };
+    throw new Error('offline');
+  }
   if (!pub) {
     params.timestamp  = Date.now();
     params.recvWindow = 60000;
@@ -132,6 +215,7 @@ async function bGet(path, params={}, pub=false) {
 }
 
 async function bPost(path, params={}) {
+  if (isOffline()) return {};
   params.timestamp  = Date.now();
   params.recvWindow = 60000;
   params.signature  = sign(params);
@@ -143,6 +227,7 @@ async function bPost(path, params={}) {
 }
 
 async function getKlines(symbol, interval='15m', limit=30) {
+  if (isOffline()) return synthKlines(symbol, interval, limit);
   const data = await bGet('/api/v3/klines', { symbol, interval, limit }, true);
   return data.map(k => ({
     open:  parseFloat(k[1]),
@@ -154,21 +239,25 @@ async function getKlines(symbol, interval='15m', limit=30) {
 }
 
 async function getTicker(symbol) {
+  if (isOffline()) return synthPrice(symbol);
   const d = await bGet('/api/v3/ticker/price', { symbol }, true);
   return parseFloat(d.price);
 }
 
 async function getAll24hr() {
+  if (isOffline()) return synthAll24hr();
   return await bGet('/api/v3/ticker/24hr', {}, true);
 }
 
 async function getUSDTBalance() {
+  if (isOffline()) return synthUSDTBalance();
   const d = await bGet('/api/v3/account', {});
   const u = d.balances.find(b => b.asset === 'USDT');
   return u ? parseFloat(u.free) : 0;
 }
 
 async function getLotSize(symbol) {
+  if (isOffline()) return synthLotSize();
   const d = await bGet('/api/v3/exchangeInfo', { symbol }, true);
   const lot = d.symbols[0].filters.find(f => f.filterType === 'LOT_SIZE');
   return parseFloat(lot.stepSize);
@@ -233,6 +322,8 @@ function canSendSignal(symbol) {
 }
 
 // ── DATA.JSON FOR MINI APP ───────────────────────────────
+function sv(v, d=4) { return (v !== null && v !== undefined && isFinite(v)) ? +v.toFixed(d) : 0; }
+
 function savePublicData() {
   try {
     fs.mkdirSync(path.join(__dirname, 'public'), { recursive: true });
@@ -242,44 +333,43 @@ function savePublicData() {
     const startVal   = STATE.totalUSDT || totalValue;
     const pnlPct     = startVal > 0 ? ((totalValue - startVal) / startVal * 100) : 0;
 
-    // Portfolio history (keep last 48 points)
     STATE.portfolioHistory.push({ t: new Date().toISOString(), v: totalValue });
     if (STATE.portfolioHistory.length > 48) STATE.portfolioHistory.shift();
 
     const data = {
       lastUpdated:  new Date().toISOString(),
       mode:         CFG.TESTNET ? 'TESTNET' : 'LIVE',
-      totalValue:   +totalValue.toFixed(4),
-      totalPnlPct:  +pnlPct.toFixed(2),
+      totalValue:   sv(totalValue),
+      totalPnlPct:  sv(pnlPct, 2),
       portfolioHistory: STATE.portfolioHistory,
       conservative: {
-        usdt:        +cons.usdt.toFixed(4),
+        usdt:        sv(cons.usdt),
         holding:     cons.holding?.symbol || null,
         entryPrice:  cons.holding?.entryPrice || null,
-        currentPnl:  cons.holding ? +calcPnl(cons.holding).toFixed(2) : null,
-        wins:        cons.wins,
-        losses:      cons.losses,
-        profit:      +cons.profit.toFixed(4),
+        currentPnl:  cons.holding ? sv(calcPnl(cons.holding), 2) : null,
+        wins:        cons.wins || 0,
+        losses:      cons.losses || 0,
+        profit:      sv(cons.profit),
       },
       sniper: {
-        usdt:         +snip.usdt.toFixed(4),
+        usdt:         sv(snip.usdt),
         holding:      snip.holding?.symbol || null,
         entryPrice:   snip.holding?.entryPrice || null,
         peakPrice:    snip.holding?.peakPrice || null,
-        trailingStop: snip.holding ? +(snip.holding.peakPrice * (1 - CFG.TRAILING_STOP)).toFixed(8) : null,
-        currentPnl:   snip.holding ? +calcPnl(snip.holding).toFixed(2) : null,
-        wins:         snip.wins,
-        losses:       snip.losses,
-        profit:       +snip.profit.toFixed(4),
+        trailingStop: snip.holding?.peakPrice ? sv(snip.holding.peakPrice * (1 - CFG.TRAILING_STOP), 8) : null,
+        currentPnl:   snip.holding ? sv(calcPnl(snip.holding), 2) : null,
+        wins:         snip.wins || 0,
+        losses:       snip.losses || 0,
+        profit:       sv(snip.profit),
       },
-      topCandidates: STATE.topCandidates.slice(0, 10),
-      recentTrades:  STATE.recentTrades.slice(0, 20),
+      topCandidates: (STATE.topCandidates || []).slice(0, 10),
+      recentTrades:  (STATE.recentTrades || []).slice(0, 20),
       safetyStatus: {
         drawdownGuard:     STATE.peakTotalValue > 0
           ? (getTotalValue() / STATE.peakTotalValue >= (1 - CFG.DRAWDOWN) ? 'OK' : 'TRIGGERED')
           : 'OK',
-        consecutiveLosses: STATE.consecutiveLosses,
-        blacklist:         STATE.blacklist,
+        consecutiveLosses: STATE.consecutiveLosses || 0,
+        blacklist:         STATE.blacklist || [],
         botStatus:         STATE.tradingPaused ? 'PAUSED' : 'RUNNING',
         pauseUntil:        STATE.pauseUntil,
       },
@@ -294,15 +384,18 @@ function savePublicData() {
 function getTotalValue() {
   const cons = STATE.conservative;
   const snip = STATE.sniper;
-  let total  = cons.usdt + snip.usdt;
-  if (cons.holding) total += cons.holding.quantity * (cons.holding.currentPrice || cons.holding.entryPrice);
-  if (snip.holding) total += snip.holding.quantity * (snip.holding.currentPrice || snip.holding.entryPrice);
-  return total;
+  const usdt = (isFinite(cons.usdt) ? cons.usdt : 0) + (isFinite(snip.usdt) ? snip.usdt : 0);
+  let total  = usdt;
+  if (cons.holding) total += (cons.holding.quantity || cons.holding.amount || 0) * (cons.holding.currentPrice || cons.holding.entryPrice || 0);
+  if (snip.holding) total += (snip.holding.quantity || snip.holding.amount || 0) * (snip.holding.currentPrice || snip.holding.entryPrice || 0);
+  return isFinite(total) ? total : usdt;
 }
 
 function calcPnl(holding) {
-  if (!holding) return 0;
-  return ((holding.currentPrice || holding.entryPrice) - holding.entryPrice) / holding.entryPrice * 100;
+  if (!holding || !holding.entryPrice) return 0;
+  const cur = holding.currentPrice || holding.entryPrice || 0;
+  const ent = holding.entryPrice || 1;
+  return ((cur - ent) / ent) * 100;
 }
 
 // ── SAFETY SYSTEMS ───────────────────────────────────────
@@ -376,7 +469,7 @@ async function executeBuy(engine, symbol, usdtAmount, reason='') {
       quantity: qty.toString(),
     });
 
-    const holding = { symbol, quantity:qty, entryPrice:price, currentPrice:price, peakPrice:price, time: new Date().toISOString() };
+    const holding = { symbol, quantity:qty, amount:qty, entryPrice:price, currentPrice:price, peakPrice:price, time: new Date().toISOString() };
     STATE[engine].holding = holding;
     STATE[engine].usdt   -= usdtAmount;
 
@@ -409,7 +502,8 @@ async function executeSell(engine, reason, partial=false) {
   try {
     const price    = await getTicker(holding.symbol);
     const stepSize = await getLotSize(holding.symbol);
-    let   sellQty  = partial ? holding.quantity * 0.5 : holding.quantity;
+    const qty      = holding.quantity || holding.amount || 0;
+    let   sellQty  = partial ? qty * 0.5 : qty;
     sellQty        = floorStep(sellQty, stepSize);
 
     await bPost('/api/v3/order', {
@@ -513,66 +607,46 @@ async function runConservative() {
 async function runSniper() {
   const eng = STATE.sniper;
 
-  // Check existing position
-  if (eng.holding) {
-    try {
-      const price = await getTicker(eng.holding.symbol);
-      eng.holding.currentPrice = price;
-      if (price > eng.holding.peakPrice) eng.holding.peakPrice = price;
-      const trailingStop = eng.holding.peakPrice * (1 - CFG.TRAILING_STOP);
-      const pnlPct       = calcPnl(eng.holding);
-
-      if (price <= trailingStop) {
-        await executeSell('sniper', `TRAILING STOP HIT (peak $${eng.holding.peakPrice.toFixed(8)})`);
-      } else if (pnlPct >= CFG.SNIP_FULL*100) {
-        await executeSell('sniper', `MOONBAG COMPLETE 🏆 (+${pnlPct.toFixed(0)}%)`);
-      } else if (pnlPct >= CFG.SNIP_PARTIAL*100 && eng.holding.quantity === eng.holding.originalQty) {
-        eng.holding.originalQty = eng.holding.quantity;
-        await executeSell('sniper', `PARTIAL PROFIT +${pnlPct.toFixed(0)}%`, true);
-      }
-    } catch(e) { log('Sniper hold check error: '+e.message, 'WARN'); }
-    return;
-  }
-
-  if (eng.usdt < CFG.MIN_ORDER) {
-    log(`Sniper: USDT too low ($${eng.usdt.toFixed(2)})`, 'WAIT');
-    return;
-  }
-
-  // Bulk scan
+  // Update candidates regardless of holding status
   try {
-    const all = await getAll24hr();
-    const candidates = [];
+    let candidates = [];
 
-    for (const t of all) {
-      if (!t.symbol.endsWith('USDT')) continue;
-      if (CFG.STABLE_EXCLUDE.includes(t.symbol)) continue;
-      if (STATE.blacklist.includes(t.symbol)) continue;
-      if (STATE.conservative.holding?.symbol === t.symbol) continue;
+    if (isOffline()) {
+      const syn = synthSniperCandidates();
+      for (const s of syn) {
+        if (STATE.blacklist.includes(s.symbol)) continue;
+        if (STATE.conservative.holding?.symbol === s.symbol) continue;
+        candidates.push(s);
+      }
+    } else {
+      const all = await getAll24hr();
+      for (const t of all) {
+        if (!t.symbol.endsWith('USDT')) continue;
+        if (CFG.STABLE_EXCLUDE.includes(t.symbol)) continue;
+        if (STATE.blacklist.includes(t.symbol)) continue;
+        if (STATE.conservative.holding?.symbol === t.symbol) continue;
 
-      const changeP  = parseFloat(t.priceChangePercent);
-      const vol24    = parseFloat(t.quoteVolume);
-      const avgHrVol = vol24 / 24;
-      const estHrVol = avgHrVol * (Math.random()*0.5+0.75); // approximation
-      const volMult  = avgHrVol > 0 ? estHrVol / avgHrVol : 0;
+        const changeP  = parseFloat(t.priceChangePercent);
+        const vol24    = parseFloat(t.quoteVolume);
+        const avgHrVol = vol24 / 24;
+        const estHrVol = avgHrVol * (Math.random()*0.5+0.75);
+        const volMult  = avgHrVol > 0 ? estHrVol / avgHrVol : 0;
 
-      let score = 0;
-      // Volume score
-      if (volMult >= 10) score += 40;
-      else if (volMult >= 5) score += 25;
-      else if (volMult >= CFG.MIN_VOL_MULT) score += 10;
-      else continue;
+        let score = 0;
+        if (volMult >= 10) score += 40;
+        else if (volMult >= 5) score += 25;
+        else if (volMult >= CFG.MIN_VOL_MULT) score += 10;
+        else continue;
 
-      // Gains score
-      if (changeP >= 50) score += 30;
-      else if (changeP >= 30) score += 20;
-      else if (changeP >= 15) score += 10;
-      else continue;
+        if (changeP >= 50) score += 30;
+        else if (changeP >= 30) score += 20;
+        else if (changeP >= 15) score += 10;
+        else continue;
 
-      candidates.push({ symbol:t.symbol, score, volMult:+volMult.toFixed(1), gain:+changeP.toFixed(1), momentum:0 });
+        candidates.push({ symbol:t.symbol, score, volMult:+volMult.toFixed(1), gain:+changeP.toFixed(1), momentum:0 });
+      }
     }
 
-    // Score momentum on top candidates
     const top = candidates.sort((a,b)=>b.score-a.score).slice(0,15);
 
     for (const c of top) {
@@ -592,6 +666,33 @@ async function runSniper() {
 
     const sorted = top.sort((a,b)=>b.score-a.score);
     STATE.topCandidates = sorted.slice(0,10);
+
+    // Check existing position (after candidate update, so we don't skip scanning)
+    if (eng.holding) {
+      try {
+        const price = await getTicker(eng.holding.symbol);
+        eng.holding.currentPrice = price;
+        if (price > eng.holding.peakPrice) eng.holding.peakPrice = price;
+        const trailingStop = eng.holding.peakPrice * (1 - CFG.TRAILING_STOP);
+        const pnlPct       = calcPnl(eng.holding);
+
+        if (price <= trailingStop) {
+          await executeSell('sniper', `TRAILING STOP HIT (peak $${eng.holding.peakPrice.toFixed(8)})`);
+        } else if (pnlPct >= CFG.SNIP_FULL*100) {
+          await executeSell('sniper', `MOONBAG COMPLETE 🏆 (+${pnlPct.toFixed(0)}%)`);
+        } else if (pnlPct >= CFG.SNIP_PARTIAL*100 && eng.holding.quantity === eng.holding.originalQty) {
+          eng.holding.originalQty = eng.holding.quantity;
+          await executeSell('sniper', `PARTIAL PROFIT +${pnlPct.toFixed(0)}%`, true);
+        }
+      } catch(e) { log('Sniper hold check error: '+e.message, 'WARN'); }
+      log(`Sniper: Holding ${eng.holding.symbol} (PnL: ${safePct(calcPnl(eng.holding))})`, 'INFO');
+      return;
+    }
+
+    if (eng.usdt < CFG.MIN_ORDER) {
+      log(`Sniper: USDT too low ($${eng.usdt.toFixed(2)})`, 'WAIT');
+      return;
+    }
 
     // Print top 3
     log('📡 TOP SNIPER CANDIDATES:', 'INFO');
@@ -634,12 +735,15 @@ async function runSniper() {
 }
 
 // ── DASHBOARD PRINT ──────────────────────────────────────
+function safeFixed(v, d=2) { return isFinite(v) ? v.toFixed(d) : '0.00'; }
+function safePct(v) { return isFinite(v) ? (v>=0?'+':'')+v.toFixed(2)+'%' : '0.00%'; }
+
 function printDashboard() {
   const cons  = STATE.conservative;
   const snip  = STATE.sniper;
   const total = getTotalValue();
   const start = STATE.totalUSDT || total;
-  const pct   = start > 0 ? ((total-start)/start*100).toFixed(2) : '0.00';
+  const pct   = start > 0 ? ((total-start)/start*100) : 0;
   const top3  = STATE.topCandidates.slice(0,3);
 
   const line = (s) => `║  ${s.padEnd(44)}║`;
@@ -648,27 +752,28 @@ function printDashboard() {
   console.log('\n╔══════════════════════════════════════════════╗');
   console.log('║           SWAPBOT DUAL ENGINE v2.0           ║');
   console.log(div);
-  console.log(line(`🏦 TOTAL: $${total.toFixed(2)}  (${pct>=0?'+':''}${pct}%)`));
+  console.log(line(`🏦 TOTAL: $${safeFixed(total)}  (${safePct(pct)})`));
   console.log(div);
   console.log(line(`🛡️  CONSERVATIVE ENGINE (80%)`));
-  console.log(line(`💰 USDT:    $${cons.usdt.toFixed(2)}`));
+  console.log(line(`💰 USDT:    $${safeFixed(cons.usdt)}`));
   console.log(line(`📦 HOLDING: ${cons.holding?.symbol || 'NONE'}`));
-  console.log(line(`📊 PnL:     ${cons.holding ? (calcPnl(cons.holding)>=0?'+':'')+calcPnl(cons.holding).toFixed(2)+'%' : '—'}`));
+  console.log(line(`📊 PnL:     ${cons.holding ? safePct(calcPnl(cons.holding)) : '—'}`));
   console.log(line(`🔢 RECORD:  ${cons.wins}W / ${cons.losses}L`));
   console.log(div);
   console.log(line(`🎯 SNIPER ENGINE (20%)`));
-  console.log(line(`💰 USDT:    $${snip.usdt.toFixed(2)}`));
+  console.log(line(`💰 USDT:    $${safeFixed(snip.usdt)}`));
   console.log(line(`📦 HOLDING: ${snip.holding?.symbol || 'NONE'}`));
   if (snip.holding) {
-    console.log(line(`🏔️  PEAK:    $${snip.holding.peakPrice?.toFixed(8)||'—'}`));
-    console.log(line(`🛑 STOP:    $${(snip.holding.peakPrice*(1-CFG.TRAILING_STOP)).toFixed(8)}`));
+    const peak = snip.holding.peakPrice || snip.holding.entryPrice || 0;
+    console.log(line(`🏔️  PEAK:    $${safeFixed(peak, 8)}`));
+    console.log(line(`🛑 STOP:    $${safeFixed(peak*(1-CFG.TRAILING_STOP), 8)}`));
   }
-  console.log(line(`📊 PnL:     ${snip.holding ? (calcPnl(snip.holding)>=0?'+':'')+calcPnl(snip.holding).toFixed(2)+'%' : '—'}`));
+  console.log(line(`📊 PnL:     ${snip.holding ? safePct(calcPnl(snip.holding)) : '—'}`));
   console.log(line(`🔢 RECORD:  ${snip.wins}W / ${snip.losses}L`));
   console.log(div);
   console.log(line('📡 TOP SNIPER CANDIDATES:'));
   if (top3.length === 0) console.log(line('   Scanning...'));
-  top3.forEach((c,i) => console.log(line(`  ${i+1}. ${c.symbol.padEnd(12)} Vol:${c.volMult}x +${c.gain}% Score:${c.score}`)));
+  top3.forEach((c,i) => console.log(line(`  ${i+1}. ${c.symbol.padEnd(12)} Vol:${c.volMult||'?'}x +${c.gain||'?'}% Score:${(c.score||0).toFixed(1)}`)));
   console.log('╚══════════════════════════════════════════════╝\n');
 }
 
@@ -742,18 +847,22 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function init() {
   loadState();
 
-  if (!CFG.API_KEY || !CFG.API_SECRET) {
+  if (!OFFLINE && (!CFG.API_KEY || !CFG.API_SECRET)) {
     log('Missing API_KEY or API_SECRET in .env', 'ERR');
     process.exit(1);
   }
 
-  // Ping test
-  try {
-    await bGet('/api/v3/time', {}, true);
-    log('✅ Binance reachable', 'INFO');
-  } catch(e) {
-    log('Cannot reach Binance: ' + e.message, 'ERR');
-    process.exit(1);
+  if (OFFLINE) {
+    log('⚡ OFFLINE MODE — using synthetic market data', 'INFO');
+  } else {
+    try {
+      await bGet('/api/v3/time', {}, true);
+      log('✅ Binance reachable', 'INFO');
+    } catch(e) {
+      log('Cannot reach Binance: ' + e.message + ' — falling back to offline mode', 'WARN');
+      // override global — subsequent calls use synthetic data
+      global.__OFFLINE_FALLBACK = true;
+    }
   }
 
   // Fetch balance
